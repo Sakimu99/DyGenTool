@@ -771,3 +771,284 @@ MVP 推荐顺序：
 7. 当浏览器端导出质量、速度或兼容性成为瓶颈时，再引入树莓派 + Cloudflare Tunnel 的小流量服务端渲染方案。
 
 在 MVP 跑通并确认用户确实需要保存项目、异步渲染或跨设备访问后，再判断是否引入 R2、D1 和外部视频渲染服务。
+
+## 19. 10 秒像素人口播视频技术选型
+
+当前已经完成“提取视频文本”和“文案改写”能力，下一步建议围绕“10 秒像素人口播视频”做差异化增强。首版不建议直接接入完整数字人视频生成 API，而是拆成 **TTS 语音合成 + 前端 Canvas 像素人动画 + 背景/字幕合成** 三层实现。
+
+### 19.1 推荐首版技术路线
+
+```text
+最终文案
+  ↓
+TTS 语音合成接口
+  ↓
+前端 Canvas 合成
+  ├─ 像素人帧动画
+  ├─ 用户上传背景
+  ├─ 字幕样式
+  └─ 生成 WebM
+  ↓
+预览并下载视频
+```
+
+首版推荐：
+
+- **声音风格**：通过后端接口调用 TTS 服务生成音频。
+- **像素人**：使用前端内置像素人素材帧动画，不直接依赖真人数字人 API。
+- **上传背景**：浏览器本地处理，后续需要保存项目时再接入 R2。
+- **字幕样式**：使用 Canvas 绘制，先提供少量高频样式。
+- **视频导出**：继续复用 `canvas.captureStream()` + `MediaRecorder` 导出 WebM。
+- **后端职责**：Cloudflare Pages Functions 只负责调用 TTS、隐藏 API Key 和做参数校验。
+
+这种路线可以复用当前已有 Canvas 视频生成能力，成本低、速度快、可控性强，适合当前小流量 MVP 阶段。
+
+### 19.2 为什么首版不建议直接接数字人视频 API
+
+第三方数字人视频生成 API 更适合第二阶段或商业化验证后再接入，原因是：
+
+1. **成本较高**：通常按秒、按分钟或按任务计费，用户多次试错会快速产生成本。
+2. **生成链路较慢**：多数数字人视频接口是异步任务，需要创建任务、轮询状态和下载结果。
+3. **画面可控性有限**：字幕样式、人物位置、背景、比例、像素风效果不一定能完全按产品需求定制。
+4. **架构复杂度上升**：需要 R2 存素材、D1/KV 存任务状态、任务轮询、失败重试和结果清理。
+5. **产品定位不完全匹配**：如果核心卖点是“像素人口播”，自建像素人动画比真人数字人 API 更轻、更贴合。
+
+### 19.3 推荐新增 API
+
+#### 19.3.1 生成口播音频
+
+```http
+POST /api/generate-speech
+Content-Type: application/json
+
+{
+  "text": "最终口播文案",
+  "voiceStyle": "natural_female",
+  "duration": 10
+}
+```
+
+返回：
+
+```json
+{
+  "success": true,
+  "audioBase64": "...",
+  "mimeType": "audio/mpeg",
+  "duration": 9.8,
+  "provider": "minimax | volcengine | aliyun | tencent"
+}
+```
+
+MVP 阶段可以直接返回 `audioBase64`，减少 R2 依赖；如果音频文件偏大或需要保存历史项目，再改为上传到 R2 并返回临时音频 URL。
+
+#### 19.3.2 适配 10 秒口播文案
+
+```http
+POST /api/fit-script-duration
+Content-Type: application/json
+
+{
+  "text": "最终文案",
+  "targetDuration": 10
+}
+```
+
+返回：
+
+```json
+{
+  "success": true,
+  "script": "适合 10 秒口播的短文案",
+  "estimatedDuration": 9.5
+}
+```
+
+中文口播通常约 4-5 字/秒，10 秒视频建议控制在 35-55 个中文字符。若用户选择的文案过长，应先调用该接口压缩成适合 10 秒口播的版本。
+
+### 19.4 TTS 服务选型
+
+| 方案 | 推荐程度 | 优点 | 缺点 |
+| --- | --- | --- | --- |
+| 火山引擎 TTS | 高 | 中文自然度较好，声音风格多，适合短视频口播 | 接入和鉴权相对复杂 |
+| MiniMax TTS | 高 | 中文情绪和口播感较好，API 体验较适合快速验证 | 成本和稳定性需要实测 |
+| 阿里云智能语音 | 中高 | 云厂商稳定，合规和企业化能力较好 | 声音风格可能偏传统播报 |
+| 腾讯云 TTS | 中高 | 国内访问稳定，云服务体系成熟 | 短视频口播风格需要实测 |
+| ElevenLabs | 中 | 英文效果强，声音自然 | 中文、国内访问和成本不一定最优 |
+| 非官方 TTS 方案 | 低 | 成本低 | 稳定性、合规和可维护性风险较高 |
+
+建议先接入一个主 TTS 服务，并在接口层保留 provider 抽象，后续可以增加备用服务。前端不要直接暴露供应商的 voice id，而是使用产品侧声音风格。
+
+推荐首版声音风格：
+
+```ts
+type VoiceStyle =
+  | "natural_female"
+  | "energetic_female"
+  | "calm_male"
+  | "marketing_female";
+```
+
+前端展示：
+
+- 自然女声
+- 活力女声
+- 沉稳男声
+- 带货女声
+
+后端将这些产品侧风格映射到具体 TTS 服务的 voice id，便于后续切换供应商。
+
+### 19.5 像素人动画实现
+
+首版像素人建议使用内置帧动画素材，而不是 AI 数字人生成：
+
+```text
+pixel-avatar/
+  ├─ idle-1.png
+  ├─ idle-2.png
+  ├─ talk-1.png
+  ├─ talk-2.png
+  ├─ talk-3.png
+  └─ blink.png
+```
+
+动画规则：
+
+1. 音频播放时，在 `talk-1`、`talk-2`、`talk-3` 之间循环，模拟口播。
+2. 音频停顿时，切换到 `idle-1`、`idle-2`。
+3. 每隔数秒随机插入 `blink` 帧，增加自然感。
+4. 首版不做真实唇形识别，避免复杂度过高。
+
+该方案实现简单、成本可控，符合当前 MVP 的 KISS 和 YAGNI 原则。
+
+### 19.6 字幕样式建议
+
+首版只提供 3 种高频字幕样式：
+
+| 样式 | 说明 | 适合场景 |
+| --- | --- | --- |
+| `outline` | 白字 + 黑色粗描边 | 通用口播 |
+| `highlight` | 白字 + 黄色重点词 + 黑色描边 | 营销、知识类短视频 |
+| `card` | 半透明深色圆角底板 + 白字 | 精致工具感视频 |
+
+推荐类型定义：
+
+```ts
+type SubtitleStyle = "outline" | "highlight" | "card";
+```
+
+后续可以扩展字幕位置、字号、描边粗细、关键词高亮和逐句展示，但首版不建议提供过多配置。
+
+### 19.7 音视频合成方式
+
+当前已有 Canvas 画面绘制和 MediaRecorder 导出能力。新增口播音频后，需要将 Canvas 视频流和音频流合并：
+
+```text
+Canvas.captureStream()
+  +
+AudioContext / HTMLAudioElement 音频轨道
+  ↓
+合并为 MediaStream
+  ↓
+MediaRecorder 导出 WebM
+```
+
+首版建议继续导出 WebM。MP4 转码、服务端渲染和更高兼容性导出放到后续阶段评估。
+
+### 19.8 如果后续接入数字人视频 API
+
+如果后续需要真人数字人或更高质量口播视频，可以新增异步任务接口：
+
+```http
+POST /api/talking-video-jobs
+Content-Type: application/json
+
+{
+  "script": "10 秒口播文案",
+  "avatarId": "avatar_01",
+  "voiceStyle": "natural_female",
+  "backgroundKey": "uploads/bg.png",
+  "subtitleStyle": "outline",
+  "duration": 10
+}
+```
+
+返回：
+
+```json
+{
+  "success": true,
+  "jobId": "job_xxx",
+  "status": "queued"
+}
+```
+
+查询任务：
+
+```http
+GET /api/talking-video-jobs/:jobId
+```
+
+返回：
+
+```json
+{
+  "success": true,
+  "status": "completed",
+  "videoUrl": "https://..."
+}
+```
+
+对应架构：
+
+```text
+用户选择文案、声音、背景、字幕
+  ↓
+上传背景到 R2
+  ↓
+Pages Functions 创建数字人任务
+  ↓
+第三方数字人 API 异步生成
+  ↓
+轮询任务状态或接收 Webhook
+  ↓
+视频结果写入 R2
+  ↓
+前端下载
+```
+
+该阶段应同时引入 R2、D1/KV、任务状态、失败重试、调用签名和用量限制。
+
+### 19.9 推荐实施顺序
+
+1. 增加“像素人口播”视频类型，首版固定 10 秒、9:16。
+2. 增加背景上传入口，先在浏览器本地处理。
+3. 增加字幕样式选择：`outline`、`highlight`、`card`。
+4. 增加声音风格选择：自然女声、活力女声、沉稳男声、带货女声。
+5. 新增 `/api/generate-speech`，接入一个 TTS 服务。
+6. 新增 10 秒文案长度控制，必要时调用 LLM 压缩文案。
+7. 改造 Canvas 渲染器，支持背景图、像素人帧动画和字幕样式。
+8. 合并 Canvas 视频轨与 TTS 音频轨，继续用 MediaRecorder 导出 WebM。
+9. 当 WebM 兼容性、速度或画质成为瓶颈时，再评估 ffmpeg.wasm、R2/D1 和服务端渲染。
+
+### 19.10 当前阶段最终建议
+
+当前最推荐路线：
+
+```text
+TTS 接口 + 前端 Canvas 像素人合成 + 本地 WebM 导出
+```
+
+中期升级路线：
+
+```text
+R2 + D1/KV + 外部 Remotion/FFmpeg 渲染服务
+```
+
+后期可选路线：
+
+```text
+第三方真人数字人视频 API
+```
+
+这样可以在不显著增加架构复杂度的前提下，最快验证用户是否真的需要“10 秒口播视频生成”能力。
