@@ -333,12 +333,25 @@ textarea:focus {
 }
 
 .video-canvas {
+  display: block;
   width: 100%;
   max-height: 420px;
   flex: 1;
   border-radius: 20px;
   background: #111827;
   object-fit: contain;
+}
+
+.video-canvas[data-ratio="9:16"] {
+  aspect-ratio: 9 / 16;
+}
+
+.video-canvas[data-ratio="1:1"] {
+  aspect-ratio: 1 / 1;
+}
+
+.video-canvas[data-ratio="16:9"] {
+  aspect-ratio: 16 / 9;
 }
 
 .actions {
@@ -382,24 +395,80 @@ textarea:focus {
 
 @media (max-width: 760px) {
   .app-shell {
-    padding: 18px;
-  }
-
-  .hero,
-  .workspace {
-    grid-template-columns: 1fr;
+    padding: 14px;
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
   }
 
   .hero {
     flex-direction: column;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  .status-pill {
+    align-self: flex-start;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+    gap: 14px;
   }
 
   .card {
     min-height: auto;
+    gap: 14px;
+    border-radius: 18px;
+    padding: 14px;
+  }
+
+  .primary,
+  .download,
+  .copy-button {
+    min-height: 44px;
+  }
+
+  .copy-row {
+    flex-direction: column;
+  }
+
+  .copy-row .copy-button,
+  .field-action .copy-button {
+    width: 100%;
+  }
+
+  .field-action {
+    margin-top: 0;
+    justify-content: stretch;
   }
 
   .controls-grid,
   .actions {
     grid-template-columns: 1fr;
+  }
+
+  .variant-list {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .thumb-grid {
+    grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  }
+
+  .thumb-grid img {
+    height: 72px;
+  }
+
+  .video-canvas {
+    flex: none;
+    height: auto;
+    max-height: min(70vh, 520px);
+  }
+
+  .message {
+    position: sticky;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    z-index: 10;
+    margin-top: 14px;
   }
 }

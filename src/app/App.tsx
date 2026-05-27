@@ -337,7 +337,7 @@ export function App() {
             </label>
           </div>
 
-          <canvas ref={canvasRef} className="video-canvas" aria-label="视频画布预览" />
+          <canvas ref={canvasRef} className="video-canvas" data-ratio={renderOptions.ratio} aria-label="视频画布预览" />
 
           <div className="actions">
             <button className="primary" type="button" disabled={!canRender || status === 'rendering'} onClick={handleRender}>生成 WebM</button>
